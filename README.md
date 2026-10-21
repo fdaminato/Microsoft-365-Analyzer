@@ -1,72 +1,56 @@
-# ITI Microsoft 365 Security & Governance Assessment — v0.1
+# ITI Microsoft 365 Security & Governance Assessment v0.2
 
-**Initial functional foundation / proof of concept.** This does **not** yet satisfy the complete nine-workload customer statement of work. Modules with no collector are clearly shown as `NotAssessed` in the HTML; no fake compliance score is generated.
-
-## What works in this version
-
-- Microsoft Graph **read-only** collection of Entra users, assigned license count, sign-in data when authorized, Conditional Access policies, current directory-role assignments, Entra directory audit events.
-- Intune managed-device compliance and compliance policy inventory.
-- Microsoft Defender incidents, and license SKU inventory.
-- Initial actionable findings and recommendations for selected observations, tagged by workload and priority.
-- Self-contained **light-themed HTML dashboard**, search, priority/workload filters, collected inventory counts and coverage states.
-- Separate machine-readable `Assessment.json`, `Findings.csv`, `Snapshot.json` and preserved per-run exports.
-- Comparison to previous tenant snapshot: **New** finding statuses and **Not observed** old findings. This is not equivalent to an audited historical change or proven remediation.
-- Optional Maester invocation and link to native Maester HTML, preserving its existing tests.
-
-## Limitations / deliberate safeguards
-
-- **Exchange Online, Teams, SharePoint, OneDrive, Purview and Sentinel** collectors require specialized administrative connections, APIs and permissions; they are explicitly marked **NotAssessed** in v0.1.
-- No overall posture score in v0.1: results with partial coverage must not look complete.
-- Microsoft Graph endpoints may return 403 due to admin roles, consent or license restrictions. Every such collector is marked NotAssessed with its error message.
-- Some attributes (including sign-in activity) can be absent and must not be interpreted as inactivity. Check actual usage, integrations, and shared mailboxes before recovering a license.
-- Role assignments are an inventory, not a claim of misconfiguration; 'Global Administrator' assignments are for review.
-- No changes are performed to the tenant. The tool writes only local output files and updates a local latest snapshot.
-- A snapshot may contain personal data / audit actor IDs and must be safeguarded accordingly. Report is offline and embeds its findings.
-- Historical audit events have retention/permission limits. The collector provides a sample of recent Entra directory audit data, not a full unified audit export.
-- Endpoint/device collection defaults to 10,000 records per endpoint; this needs paging/truncation reporting for very large tenants.
-- Run Maester only with a correct, existing tests directory; use the same Maester version as your approved baseline.
+Read-only PowerShell 7.2+ tenant assessment, evolving from v0.1.1. Includes Graph collectors, security posture findings, granular inventory tables in a standalone ITI HTML dashboard, JSON, CSV, snapshot comparisons, optional Exchange Online / Teams / SharePoint / Purview sessions and optional Maester.
 
 ## Requirements
-
-- PowerShell 7.2 or later, Windows/macOS/Linux.
-- `Microsoft.Graph.Authentication` PowerShell module.
-- Optional `Maester` module (2.x) and a downloaded test directory.
-- An operator with the appropriate Microsoft Entra permissions and consent for requested Graph scopes.
 
 ```powershell
 Install-Module Microsoft.Graph.Authentication -Scope CurrentUser
 Install-Module Maester -Scope CurrentUser
-
-# Standard first run (authentication prompt)
-./Invoke-ITIM365Assessment.ps1 `
-  -TenantId '00000000-0000-0000-0000-000000000000' `
-  -ClientName 'Client ABC' -OpenReport
-
-# With Maester tests (existing folder)
-./Invoke-ITIM365Assessment.ps1 `
-  -TenantId '00000000-0000-0000-0000-000000000000' `
-  -ClientName 'Client ABC' `
-  -RunMaester -MaesterTestsPath 'C:\Maester\tests' -OpenReport
-
-# Reuse already-authenticated Graph session for a matching tenant
-./Invoke-ITIM365Assessment.ps1 -TenantId '00000000-0000-0000-0000-000000000000' -SkipConnect
+# Optional depending on switches:
+Install-Module ExchangeOnlineManagement -Scope CurrentUser
+Install-Module MicrosoftTeams -Scope CurrentUser
+Install-Module Microsoft.Online.SharePoint.PowerShell -Scope CurrentUser
 ```
 
-**Important:** the sample TenantId is a placeholder; replace it with a real tenant GUID. To run Maester, first obtain and prepare its tests folder per https://maester.dev/.
+## Run
 
-## Output
+```powershell
+.\Invoke-ITIM365Assessment.ps1 -TenantId 'TENANT-GUID' -OpenReport
+# Full accessible workloads (separate service sign-ins and admin permissions may be required)
+.\Invoke-ITIM365Assessment.ps1 -TenantId 'TENANT-GUID' -ClientName 'Customer' -IncludeExchange -IncludeTeams -IncludeSharePoint -SharePointAdminUrl 'https://customer-admin.sharepoint.com' -IncludePurview -OpenReport
+# Optional Maester tests; set path to the existing Maester test directory
+.\Invoke-ITIM365Assessment.ps1 -TenantId 'TENANT-GUID' -RunMaester -MaesterTestsPath 'C:\Maester\tests' -OpenReport
+```
 
-`exports/<tenant GUID>/<YYYYMMDD-HHMMSS>/Assessment.html` is the main report. `Maester.html` is created only if requested and Maester succeeds. `latest-snapshot.json` at tenant root stores the last assessment snapshot.
+Graph sign-in requests multiple delegated read scopes; admins must grant consent as appropriate. Do not grant broad privileges solely to clear an optional test; each missing permission is shown as **NotAssessed**. Defender incidents require `SecurityIncident.Read.All` **and** an appropriate Microsoft Entra role (Security Reader or Global Reader, for instance) and product access. Some Microsoft Graph beta API properties may change; configuration-policy inventory uses beta. Some PowerShell modules and tenants may have different command availability, reported per control.
 
-## Recommended next iterations
+## Assessment scope
 
-1. Add Exchange Online anti-spam/phish rules, forwarding, mail-flow, delegated access and administrative role collectors.
-2. Add Teams/SharePoint/OneDrive policy and governance collectors.
-3. Add Defender posture (MDE onboarding, security configuration coverage, DFO policies), Purview and Sentinel.
-4. Add explicit baseline policies and object-level normalized diffs, permission probes, event attribution, acceptance workflow and an executive scoring model only for well-covered domains.
-5. Unit/integration tests in a tenant laboratory before production client usage.
+- Entra: users, sign-in age (when returned), disabled licensed accounts, identity metadata, Conditional Access policy state and exclusion triage, directory roles, admin activity, application secret/certificate expiry, enterprise applications, subscriptions.
+- Intune: managed devices, compliance states and last sync, compliance policies, Settings Catalog inventory, legacy configuration policies, mobile app protection policies.
+- Defender: incidents (with permission), open high severity incident triage.
+- Exchange (optional): mailbox forwarding, transport rules, domains, outbound auto-forwarding, anti-phish/spam, Safe Links, Safe Attachments.
+- Teams (optional): federation and meeting policy inventory.
+- SharePoint/OneDrive (optional): tenant/site sharing and selected OneDrive settings.
+- Purview (optional): DLP, retention, labels (policy presence only).
+- Sentinel: explicitly *NotAssessed* (Azure subscription/workspace integration remains a separate extension).
+- Maester (optional): invoke native test suite and link native HTML; runs only when explicitly requested.
 
-### Sources
+## Important limitations
 
-- Maester `Invoke-Maester`: https://maester.dev/docs/commands/Invoke-Maester/
-- Microsoft Graph directory audit: https://learn.microsoft.com/en-us/powershell/module/microsoft.graph.reports/get-mgauditlogdirectoryaudit
+1. Collected inventories do not imply configuration compliance. Rule-based findings are **triage candidates** that require human review, not a certified audit.
+2. `Assessment.json` and the self-contained `Assessment.html` may include sensitive identity, policies and event details; protect and limit access to exports.
+3. 403, absent license, incomplete permissions and unavailable modules are **NotAssessed**, not Passed.
+4. Graph returns may vary depending on API, licensing and delegated role. Verify completeness before publishing client reports.
+5. Snapshot `Existing` / `New` tracks issue keys only; missing findings are **Unverified**, never automatically called Remediated.
+6. A first run without Maester is *not* a comprehensive Maester security benchmark. Use `-RunMaester` to add the official test pack.
+7. This v0.2 is an expanded implementation, not literally every Microsoft 365 control; some controls (Sentinel, advanced Defender hunting, detailed Purview DLP events, Intune policy assignments) remain planned.
+8. No write commands to Microsoft 365 are performed. Export files are written locally. Some optional module sign-in commands can create local connection state.
+
+## Validation
+
+Open `Assessment.html` and review `Coverage` **before** interpreting the findings. Validate `ManagedDevices` inventory count and licensing with tenant admin portals. Test on a non-production tenant first. No live tenant execution was possible during development.
+
+Microsoft Graph API: https://learn.microsoft.com/graph/api/security-list-incidents?view=graph-rest-1.0
+Maester: https://maester.dev/
